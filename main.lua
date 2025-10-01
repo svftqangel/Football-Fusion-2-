@@ -1,16 +1,16 @@
+-- ===== SERVICES =====
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 
--- Load Rayfield
+-- ===== RAYFIELD =====
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
--- Create main window
 local Window = Rayfield:CreateWindow({
     Name = "Football Fusion 🏈",
     LoadingTitle = "Rayfield Interface Suite",
-    LoadingSubtitle = "by Svderr2", -- updated
+    LoadingSubtitle = "by Svderr2",
     ShowText = "Rayfield",
     Theme = "Default",
     ToggleUIKeybind = Enum.KeyCode.K,
@@ -20,29 +20,14 @@ local Window = Rayfield:CreateWindow({
         Enabled = true,
         FolderName = "FootballFusionHub",
         FileName = "BigHub"
-    },
-    Discord = {
-        Enabled = false,
-        Invite = "ABCD",
-        RememberJoins = true
-    },
-    KeySystem = true,
-    KeySettings = {
-        Title = "Verdin",
-        Subtitle = "Key System",
-        Note = "Key = Hello",
-        FileName = "KeyFile",
-        SaveKey = true,
-        GrabKeyFromSite = false,
-        Key = {"Hello"}
     }
 })
 
--- ✅ Tab
 local CatchingTab = Window:CreateTab("Catching", 4483362458)
 
--- ===== MAGNET BACKEND =====
+-- ===== GLOBAL SETTINGS =====
 getgenv().g = getgenv().g or {}
+-- Magnet/Hitbox
 g.magnetEnabled = false
 g.magnetRange = 13
 g.currentMode = "Regular"
@@ -51,15 +36,20 @@ g.hitboxType = "Forcefield"
 g.rainbowHitboxEnabled = false
 g.rainbowSpeed = 0.5
 g.ping = 0.12
-
--- Long Arm settings
-g.longArmEnabled = false
-g.longArmDistance = 10
+-- Pull Vector / Long Arm
+getgenv().PullVectorOn = false
+getgenv().PullVectorSpeed = 2
+getgenv().PullVectorRadius = 35
+getgenv().pullVectoredBalls = {}
+-- Void Arm
+getgenv().voidArmOn = false
+getgenv().voidArmSize = 4
 
 local hitboxes, velocities, lastPositions = {}, {}, {}
 local rainbowHue = 0
 local modeRanges = {Regular = 13, League = 6, Legit = 10, Rage = 25, Custom = 0}
 
+-- ===== FUNCTIONS =====
 local function getRange()
     if g.currentMode == "Custom" then return g.magnetRange end
     return modeRanges[g.currentMode] or 13
@@ -152,145 +142,96 @@ Workspace.ChildRemoved:Connect(function(obj)
     if hitboxes[obj] then clearHitbox(obj) end
 end)
 
+-- ===== HEARTBEAT LOOP =====
 RunService.Heartbeat:Connect(function(dt)
     local balls = findFootballs()
     if #balls == 0 then return end
     local char = LocalPlayer.Character
     local leftCatch = char and (char:FindFirstChild("LeftCatch") or char:FindFirstChild("LeftHand") or char:FindFirstChild("Left Arm"))
     local rightCatch = char and (char:FindFirstChild("RightCatch") or char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm"))
+
     for _, ball in ipairs(balls) do
         local last = lastPositions[ball] or ball.Position
         velocities[ball] = (ball.Position - last) / (dt > 0 and dt or 0.016)
         lastPositions[ball] = ball.Position
+
+        -- Hitbox
         if g.hitboxEnabled or g.rainbowHitboxEnabled then
             createOrUpdateHitbox(ball)
         else
             clearHitbox(ball)
         end
 
-        if g.magnetEnabled and leftCatch and rightCatch then
+        -- Magnet + Pull Vector
+        if leftCatch and rightCatch then
             local predictedPos = ball.Position + (velocities[ball] or Vector3.new()) * g.ping
 
-            -- Long Arm extension
-            local leftPos = leftCatch.Position
-            local rightPos = rightCatch.Position
-            if g.longArmEnabled then
-                local dirToBallL = (predictedPos - leftPos).Unit
-                leftPos = leftPos + dirToBallL * g.longArmDistance
-
-                local dirToBallR = (predictedPos - rightPos).Unit
-                rightPos = rightPos + dirToBallR * g.longArmDistance
+            -- Pull Vector / Long Arm
+            if PullVectorOn then
+                local root = char:FindFirstChild("HumanoidRootPart")
+                if root and (root.Position - ball.Position).Magnitude <= PullVectorRadius then
+                    local dir = (ball.Position - root.Position).Unit
+                    root.AssemblyLinearVelocity = dir * PullVectorSpeed * 25
+                end
             end
 
-            local nearest = nearestPart(ball, {leftPos, rightPos})
-            if nearest and (nearest.Position - predictedPos).Magnitude <= getRange() + (g.longArmEnabled and g.longArmDistance or 0) then
-                pcall(function()
-                    firetouchinterest(leftCatch, ball, 0)
-                    firetouchinterest(leftCatch, ball, 1)
-                    firetouchinterest(rightCatch, ball, 0)
-                    firetouchinterest(rightCatch, ball, 1)
-                end)
+            -- Magnet
+            if g.magnetEnabled then
+                local nearest = nearestPart(ball, {leftCatch, rightCatch})
+                if nearest and (nearest.Position - predictedPos).Magnitude <= getRange() then
+                    pcall(function()
+                        firetouchinterest(leftCatch, ball, 0)
+                        firetouchinterest(leftCatch, ball, 1)
+                        firetouchinterest(rightCatch, ball, 0)
+                        firetouchinterest(rightCatch, ball, 1)
+                    end)
+                end
             end
+        end
+    end
+
+    -- Void Arm
+    if voidArmOn and char then
+        local l = char:FindFirstChild("Left Arm")
+        local r = char:FindFirstChild("Right Arm")
+        if l and r then
+            l.Size = Vector3.new(1, voidArmSize, 1)
+            r.Size = Vector3.new(1, voidArmSize, 1)
+        end
+    elseif char then
+        local l = char:FindFirstChild("Left Arm")
+        local r = char:FindFirstChild("Right Arm")
+        if l and r then
+            l.Size = Vector3.new(1, 2, 1)
+            r.Size = Vector3.new(1, 2, 1)
         end
     end
 end)
 
 -- ===== RAYFIELD UI =====
+-- Magnet Section
 CatchingTab:CreateSection("Magnet Settings")
+CatchingTab:CreateToggle({Name="Magnets",CurrentValue=false,Flag="Magnets",Callback=function(v) g.magnetEnabled=v end})
+CatchingTab:CreateSlider({Name="Magnet Range",Range={0,40},Increment=1,Suffix=" studs",CurrentValue=13,Flag="MagnetRange",Callback=function(v) g.magnetRange=v end})
+CatchingTab:CreateDropdown({Name="Magnet Type",Options={"Regular","League","Legit","Rage","Custom"},CurrentOption={"Regular"},MultipleOptions=false,Flag="MagnetType",Callback=function(o) g.currentMode=o[1] end})
 
-CatchingTab:CreateToggle({
-    Name = "Magnets",
-    CurrentValue = false,
-    Flag = "Magnets",
-    Callback = function(Value) g.magnetEnabled = Value end,
-})
+-- Hitbox Section
+CatchingTab:CreateSection("Hitbox Settings")
+CatchingTab:CreateToggle({Name="Magnet Hitbox",CurrentValue=false,Flag="MagnetHitbox",Callback=function(v) g.hitboxEnabled=v end})
+CatchingTab:CreateDropdown({Name="Hitbox Type",Options={"Forcefield","Sphere","Box"},CurrentOption={"Forcefield"},MultipleOptions=false,Flag="HitboxType",Callback=function(o) g.hitboxType=o[1] end})
+CatchingTab:CreateToggle({Name="Rainbow Hitbox",CurrentValue=false,Flag="RainbowHitbox",Callback=function(v) g.rainbowHitboxEnabled=v end})
+CatchingTab:CreateSlider({Name="Rainbow Speed",Range={0.01,2},Increment=0.01,CurrentValue=0.5,Flag="RainbowSpeed",Callback=function(v) g.rainbowSpeed=v end})
 
-CatchingTab:CreateSlider({
-    Name = "Magnet Range",
-    Range = {0, 40},
-    Increment = 1,
-    Suffix = " studs",
-    CurrentValue = 13,
-    Flag = "MagnetRange",
-    Callback = function(Value) g.magnetRange = Value end,
-})
+-- Long Arm / Pull Vector Section
+CatchingTab:CreateSection("Long Arm Settings")
+CatchingTab:CreateToggle({Name="Enable Long Arm",CurrentValue=false,Flag="PullVectorToggle",Callback=function(v) PullVectorOn=v end})
+CatchingTab:CreateSlider({Name="Arm Speed",Range={1,5},Increment=0.1,CurrentValue=2,Flag="PullVectorSpeed",Callback=function(v) PullVectorSpeed=v end})
+CatchingTab:CreateSlider({Name="Arm Radius",Range={10,50},Increment=1,CurrentValue=35,Flag="PullVectorRadius",Callback=function(v) PullVectorRadius=v end})
 
-CatchingTab:CreateDropdown({
-    Name = "Magnet Type",
-    Options = {"Regular","League","Legit","Rage","Custom"},
-    CurrentOption = {"Regular"},
-    MultipleOptions = false,
-    Flag = "MagnetType",
-    Callback = function(Options) g.currentMode = Options[1] end,
-})
+-- Void Arm Section
+CatchingTab:CreateSection("Void Arm Settings")
+CatchingTab:CreateToggle({Name="Enable Void Arm",CurrentValue=false,Flag="VoidArmToggle",Callback=function(v) voidArmOn=v end})
+CatchingTab:CreateSlider({Name="Arm Length",Range={2,20},Increment=0.1,CurrentValue=4,Flag="VoidArmSize",Callback=function(v) voidArmSize=v end})
 
-CatchingTab:CreateDivider()
-
-CatchingTab:CreateToggle({
-    Name = "Magnet Hitbox",
-    CurrentValue = false,
-    Flag = "MagnetHitbox",
-    Callback = function(Value) g.hitboxEnabled = Value end,
-})
-
-CatchingTab:CreateDropdown({
-    Name = "Hitbox Type",
-    Options = {"Forcefield","Sphere","Box"},
-    CurrentOption = {"Forcefield"},
-    MultipleOptions = false,
-    Flag = "HitboxType",
-    Callback = function(Options) g.hitboxType = Options[1] end,
-})
-
-CatchingTab:CreateToggle({
-    Name = "Rainbow Hitbox",
-    CurrentValue = false,
-    Flag = "RainbowHitbox",
-    Callback = function(Value) g.rainbowHitboxEnabled = Value end,
-})
-
-CatchingTab:CreateSlider({
-    Name = "Rainbow Speed",
-    Range = {0.01, 2},
-    Increment = 0.01,
-    CurrentValue = 0.5,
-    Flag = "RainbowSpeed",
-    Callback = function(Value) g.rainbowSpeed = Value end,
-})
-
--- ===== LONG ARM UI =====
-CatchingTab:CreateToggle({
-    Name = "Long Arm",
-    CurrentValue = false,
-    Flag = "LongArm",
-    Callback = function(Value) g.longArmEnabled = Value end,
-})
-
-CatchingTab:CreateSlider({
-    Name = "Arm Distance",
-    Range = {1, 50},
-    Increment = 1,
-    CurrentValue = 10,
-    Flag = "LongArmDistance",
-    Callback = function(Value) g.longArmDistance = Value end,
-})
-
-Rayfield:Notify({
-    Title = "Magnet Hub Loaded",
-    Content = "Magnet + Hitbox settings are ready.",
-    Duration = 5,
-    Image = "rewind",
-})
-
--- ===== CREDITS TAB =====
-local CreditsTab = Window:CreateTab("Credits", 4483362458)
-
-CreditsTab:CreateSection("Script Creator")
-CreditsTab:CreateLabel("Made by Svderr2")
-
-Rayfield:Notify({
-    Title = "Credits",
-    Content = "Made by Svderr2",
-    Duration = 5,
-    Image = "star"
-})
+-- Notification
+Rayfield:Notify({Title="Football Fusion Loaded",Content="Magnet, Hitbox, Long Arm, and Void Arm ready.",Duration=5,Image="rewind"})
